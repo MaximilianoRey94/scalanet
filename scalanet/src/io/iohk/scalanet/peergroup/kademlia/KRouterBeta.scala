@@ -38,24 +38,6 @@ class KRouterBeta[A,M](
 
   private val nextUUID = new mutable.HashMap[BitVector,Long]()
   private val cache = new mutable.HashMap[BitVector,Map[Long,BroadCastMessage[M]]]()
-  //_------------------------------------TMP--------------------------------------------------------------------
-  import scala.concurrent.duration.Duration
-  import monix.execution.Scheduler.Implicits.global
-  val castID = config.nodeRecord.id
-  def printState():Unit = {
-    routerState.get.delayExecution(Duration(3000,"millis")).runAsync(rS => rS match{
-      case Left(_) => printState()
-      case Right(routState) => {
-        //val tmp =  routState.kBuckets.buckets.filter(p => !p.isEmpty).foldLeft(Set():Set[BitVector])((rec,x) => rec ++ x)
-        val tmp = routState.nodeRecords.values
-        System.out.println("ID: " + castID + ": SIZE: " + tmp.size + " RECORD NODES: " + tmp.foldRight("")((x,rec) => " Elem: " + x.toString() + rec) )
-        printState()
-      }
-    })
-  }
-  //printState()
-
-  //-----------------------------------------------------------------------------------------------------------
 
 
   private val log = LoggerFactory.getLogger(getClass)
