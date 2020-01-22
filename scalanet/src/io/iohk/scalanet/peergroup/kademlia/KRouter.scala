@@ -47,10 +47,9 @@ class KRouter[A](
         lookup(KBuckets.generateRandomId(config.nodeRecord.id.length, rnd)).map(_ => ())
       })
   }
-
-  // TODO[PM-1035]: parallelism should be configured by library user
+  
   private val responseTaskConsumer =
-    Consumer.foreachParallelTask[(KRequest[A], Option[KResponse[A]] => Task[Unit])](parallelism = 4) {
+    Consumer.foreachParallelTask[(KRequest[A], Option[KResponse[A]] => Task[Unit])](config.parallelism) {
       case (FindNodes(uuid, nodeRecord, targetNodeId), responseHandler) =>
         debug(
           s"Received request FindNodes(${nodeRecord.id.toHex}, $nodeRecord, ${targetNodeId.toHex})"
@@ -426,7 +425,8 @@ object KRouter {
       alpha: Int = 3,
       k: Int = 20,
       serverBufferSize: Int = 2000,
-      refreshRate: FiniteDuration = 15.minutes
+      refreshRate: FiniteDuration = 15.minutes,
+      parallelism:Int = 4
   )
 
   private[scalanet] def getIndex[A](config: Config[A], clock: Clock): NodeRecordIndex[A] = {
@@ -478,7 +478,7 @@ object KRouter {
       network: KNetwork[A],
       clock: Clock = Clock.systemUTC(),
       uuidSource: () => UUID = () => UUID.randomUUID()
-  ): Task[KRouter[A]] = {
+  ) : Task[KRouter[A]] = {
     Ref
       .of[Task, NodeRecordIndex[A]](
         getIndex(config, clock)
