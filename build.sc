@@ -49,7 +49,8 @@ object scalanet extends ScalaModule with PublishModule {
     ivy"org.scodec::scodec-bits:1.1.6",
     ivy"io.iohk::decco:0.2",
     ivy"io.iohk::decco-auto:0.2",
-    ivy"org.scala-lang.modules::scala-parser-combinators:1.1.2"
+    ivy"org.scala-lang.modules::scala-parser-combinators:1.1.2",
+	ivy"com.madgag.spongycastle:core:1.56.0.0"
   )
 
   def pomSettings = PomSettings(
