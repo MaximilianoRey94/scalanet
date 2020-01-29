@@ -180,5 +180,4 @@ object KPeerGroup {
     override def in: ConnectableObservable[M] = connectableObservable
 
   }
-
 }

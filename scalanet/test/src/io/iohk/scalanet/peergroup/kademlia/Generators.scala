@@ -1,6 +1,7 @@
 package io.iohk.scalanet.peergroup.kademlia
 
 import java.security.SecureRandom
+import java.security.spec.ECPrivateKeySpec
 import java.util.UUID
 
 import io.iohk.scalanet.codec.{StreamCodecFromContract, StringCodecContract}
@@ -11,7 +12,8 @@ import scodec.bits.BitVector
 
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
-import io.iohk.scalanet.{crypto}
+import io.iohk.scalanet.crypto
+import org.spongycastle.crypto.params.{ECPrivateKeyParameters, ECPublicKeyParameters}
 
 object Generators {
 
@@ -72,15 +74,15 @@ object Generators {
     BitVector.bits(Range(0, bitLength).map(_ => Random.nextBoolean()))
 
   def aRandomNodeRecord(
-      bitLength: Int = defaultBitLength
+      bitLength: Int = defaultBitLength,keyPair:Option[(ECPrivateKeyParameters,ECPublicKeyParameters)] = None
   ): NodeRecord[String] = {
-    val pair = crypto.generateKeyPair(random)
+    val pair = if(keyPair.isEmpty) crypto.generateKeyPair(random) else keyPair.get
     NodeRecord.create[String](
       id = BitVector(crypto.encodeKey(pair._2)),
       routingAddress = Random.alphanumeric.take(4).mkString,
       messagingAddress = Random.alphanumeric.take(4).mkString,
-      uuid = new UUID(random.nextLong(),random.nextLong()),
-      pair._1
+      sec_number = random.nextLong(),
+      key = pair._1
     )(new StreamCodecFromContract[String](StringCodecContract))
   }
 }

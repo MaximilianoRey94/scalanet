@@ -27,6 +27,7 @@ class KRouter[A](
     val config: Config[A],
     val network: KNetwork[A],
     private val routerState: Ref[Task, NodeRecordIndex[A]],
+    private val privateKey:ECPrivateKeyParameters,
     val clock: Clock = Clock.systemUTC(),
     val uuidSource: () => UUID = () => UUID.randomUUID(),
     val rnd: Random = new SecureRandom()
@@ -34,6 +35,7 @@ class KRouter[A](
 
   private val log = LoggerFactory.getLogger(getClass)
 
+  var actualNodeRecord = config.nodeRecord
   /**
     * Start refresh cycle i.e periodically performs lookup for random node id
     *
@@ -50,8 +52,11 @@ class KRouter[A](
   private def startRefreshCycle(): Task[Unit] = {
     Observable
       .intervalWithFixedDelay(config.refreshRate, config.refreshRate)
-      .consumeWith(Consumer.foreachTask { _ =>
-        lookup(KBuckets.generateRandomId(config.nodeRecord.id.length, rnd)).map(_ => ())
+      .consumeWith(Consumer.foreachTask { _ => {
+          val newNodeRecord = NodeRecord.create(actualNodeRecord.id,actualNodeRecord.routingAddress,actualNodeRecord.messagingAddress,actualNodeRecord.sec_number+1,privateKey)
+          actualNodeRecord = newNodeRecord
+          lookup(KBuckets.generateRandomId(config.nodeRecord.id.length, rnd)).map(_ => ())
+        }
       })
   }
 
@@ -66,7 +71,7 @@ class KRouter[A](
         for {
           state <- routerState.get
           closestNodes = state.kBuckets.closestNodes(targetNodeId, config.k).map(state.nodeRecords(_))
-          response = Nodes(uuid, config.nodeRecord, closestNodes)
+          response = Nodes(uuid, actualNodeRecord, closestNodes)
           _ <- add(nodeRecord).startAndForget
           responseTask <- responseHandler(Some(response))
         } yield responseTask
@@ -75,7 +80,7 @@ class KRouter[A](
         debug(
           s"Received request Ping(${nodeRecord.id.toHex}, $nodeRecord)"
         )
-        val response = Pong(uuid, config.nodeRecord)
+        val response = Pong(uuid, actualNodeRecord)
         for {
           _ <- add(nodeRecord).startAndForget
           responseTask <- responseHandler(Some(response))
@@ -136,30 +141,33 @@ class KRouter[A](
     routerState.get.map(_.nodeRecords)
   }
 
-  def ping(recToPing: NodeRecord[A]): Task[Boolean] = {
+  def ping(recToPing: NodeRecord[A]): Task[Option[NodeRecord[A]]] = {
     network
-      .ping(recToPing, Ping(uuidSource(), config.nodeRecord))
-      .map(_ => true)
-      .onErrorHandle(_ => false)
-
+      .ping(recToPing, Ping(uuidSource(), actualNodeRecord))
+      .map(x => Some(x.nodeRecord))
+      .onErrorHandle(_ => None)
   }
 
   def add(nodeRecord: NodeRecord[A]): Task[Unit] = {
     info(s"Handling potential addition of candidate (${nodeRecord.id.toHex}, $nodeRecord)")
-    if(!NodeRecord.verify[A](nodeRecord)) {return Task.eval()}
-    for {
-      toPing <- routerState.modify { current =>
-        val (_, bucket) = current.kBuckets.getBucket(nodeRecord.id)
-        if (bucket.size < config.k) {
-          (current.addNodeRecord(nodeRecord), None)
-        } else {
-          // the bucket is full, not update it but ping least recently seen node (i.e. the one at the head) to see what to do
-          val nodeToPing = current.nodeRecords(bucket.head)
-          (current, Some(nodeToPing))
-        }
-      }
-      result <- pingAndUpdateState(toPing, nodeRecord)
-    } yield result
+    if(!NodeRecord.verify[A](nodeRecord)) Task.eval()
+    else {
+      getLocally(nodeRecord.id).flatMap(previewsRegisterNodeRecord => if (previewsRegisterNodeRecord.isDefined && previewsRegisterNodeRecord.get.sec_number > nodeRecord.sec_number) Task.eval() else
+        for {
+          toPing <- routerState.modify { current =>
+            val (_, bucket) = current.kBuckets.getBucket(nodeRecord.id)
+            if (bucket.size < config.k) {
+              (current.addNodeRecord(nodeRecord), None)
+            } else {
+              // the bucket is full, not update it but ping least recently seen node (i.e. the one at the head) to see what to do
+              val nodeToPing = current.nodeRecords(bucket.head)
+              (current, Some(nodeToPing))
+            }
+          }
+          result <- pingAndUpdateState(toPing, nodeRecord)
+        } yield result
+      )
+    }
   }
 
   private def pingAndUpdateState(recordToPing: Option[NodeRecord[A]], nodeRecord: NodeRecord[A]): Task[Unit] = {
@@ -169,9 +177,10 @@ class KRouter[A](
         for {
           pingResult <- ping(nodeToPing)
           _ <- routerState.update { current =>
-            if (pingResult) {
+            if (pingResult.isDefined && pingResult.get.sec_number >= nodeToPing.sec_number) {
               // if it does respond, it is moved to the tail and the other node record discarded.
-              current.touchNodeRecord(nodeToPing)
+              if(nodeToPing.sec_number.equals(pingResult.get.sec_number)) current.touchNodeRecord(nodeToPing)
+              else current.replaceNodeRecord(nodeToPing,pingResult.get)
             } else {
               // if that node fails to respond, it is evicted from the bucket and the other node inserted (at the tail)
               current.replaceNodeRecord(nodeToPing, nodeRecord)
@@ -179,7 +188,7 @@ class KRouter[A](
           }
 
           _ <- Task.eval {
-            if (pingResult) {
+            if (pingResult.isDefined) {
               info(
                 s"Moving ${nodeToPing.id} to head of bucket. Discarding (${nodeRecord.id.toHex}, $nodeRecord) as routing table candidate."
               )
@@ -228,7 +237,7 @@ class KRouter[A](
 
       val findNodesRequest = FindNodes(
         requestId = requestId,
-        nodeRecord = config.nodeRecord,
+        nodeRecord = actualNodeRecord,
         targetNodeId = targetNodeId
       )
 
@@ -455,6 +464,7 @@ object KRouter {
   def startRouterWithServerSeq[A](
       config: Config[A],
       network: KNetwork[A],
+      privateKey:ECPrivateKeyParameters,
       clock: Clock = Clock.systemUTC(),
       uuidSource: () => UUID = () => UUID.randomUUID()
   )(implicit codec: Codec[A]): Task[KRouter[A]] = {
@@ -462,7 +472,7 @@ object KRouter {
       state <- Ref.of[Task, NodeRecordIndex[A]](
         getIndex(config, clock)
       )
-      router <- Task.now(new KRouter(config, network, state, clock, uuidSource))
+      router <- Task.now(new KRouter(config, network, state,privateKey, clock, uuidSource))
       _ <- router.enroll()
       _ <- router.startServerHandling().startAndForget
       _ <- router.startRefreshCycle().startAndForget
@@ -484,6 +494,7 @@ object KRouter {
   def startRouterWithServerPar[A](
       config: Config[A],
       network: KNetwork[A],
+      privateKey:ECPrivateKeyParameters,
       clock: Clock = Clock.systemUTC(),
       uuidSource: () => UUID = () => UUID.randomUUID()
   )(implicit codec:Codec[A]) : Task[KRouter[A]] = {
@@ -492,7 +503,7 @@ object KRouter {
         getIndex(config, clock)
       )
       .flatMap { state =>
-        Task.now(new KRouter(config, network, state, clock, uuidSource)).flatMap { router =>
+        Task.now(new KRouter(config, network, state,privateKey, clock, uuidSource)).flatMap { router =>
           Task.parMap3(
             router.enroll(),
             router.startServerHandling().startAndForget,
@@ -508,25 +519,23 @@ object KRouter {
   // sequence number (why)
   // compressed public key (why)
   // TODO understand what these things do, which we need an implement.
-  case class NodeRecord[A](id: BitVector, routingAddress: A, messagingAddress: A,uuid:UUID,sign:(BigInteger,BigInteger)) {
+  case class NodeRecord[A](id: BitVector, routingAddress: A, messagingAddress: A,sec_number:Long,sign:(BigInteger,BigInteger)) {
     override def toString: String =
-      s"NodeRecord(uuid = ${uuid}, id = ${id.toHex}, routingAddress = $routingAddress, messagingAddress = $messagingAddress)"
+      s"NodeRecord(sec_number = ${sec_number}, id = ${id.toHex}, routingAddress = $routingAddress, messagingAddress = $messagingAddress)"
   }
 
   object NodeRecord{
-    def create[A](id: BitVector, routingAddress: A, messagingAddress: A,uuid:UUID,key:ECPrivateKeyParameters)(implicit streamCodec: StreamCodec[A]):NodeRecord[A] = {
-      val encodedUUID = ByteBuffer.allocate(16)
-      encodedUUID.putLong(0,uuid.getMostSignificantBits)
-      encodedUUID.putLong(8,uuid.getLeastSignificantBits)
-      val encoded = id.toByteArray ++ streamCodec.encode[ByteBuffer](routingAddress).array() ++ streamCodec.encode[ByteBuffer](routingAddress).array() ++ encodedUUID.array()
+    def create[A](id: BitVector, routingAddress: A, messagingAddress: A,sec_number:Long,key:ECPrivateKeyParameters)(implicit codec: Codec[A]):NodeRecord[A] = {
+      val encodedUUID = ByteBuffer.allocate(8)
+      encodedUUID.putLong(0,sec_number)
+      val encoded = id.toByteArray ++ codec.encode[ByteBuffer](routingAddress).array() ++ codec.encode[ByteBuffer](routingAddress).array() ++ encodedUUID.array()
       val sign = crypto.sign(encoded,key)
-      NodeRecord[A](id,routingAddress,messagingAddress,uuid,sign)
+      NodeRecord[A](id,routingAddress,messagingAddress,sec_number,sign)
     }
-    def verify[A](n:NodeRecord[A])(implicit streamCodec: Codec[A]):Boolean = {
-      val encodedUUID = ByteBuffer.allocate(16)
-      encodedUUID.putLong(0,n.uuid.getMostSignificantBits)
-      encodedUUID.putLong(8,n.uuid.getLeastSignificantBits)
-      val encoded = n.id.toByteArray ++ streamCodec.encode[ByteBuffer](n.routingAddress).array() ++ streamCodec.encode[ByteBuffer](n.routingAddress).array() ++ encodedUUID.array()
+    def verify[A](n:NodeRecord[A])(implicit codec: Codec[A]):Boolean = {
+      val encodedUUID = ByteBuffer.allocate(8)
+      encodedUUID.putLong(0,n.sec_number)
+      val encoded = n.id.toByteArray ++ codec.encode[ByteBuffer](n.routingAddress).array() ++ codec.encode[ByteBuffer](n.routingAddress).array() ++ encodedUUID.array()
       crypto.verify(encoded,n.sign._1,n.sign._2,crypto.recuperateEncodedKey(n.id.toByteArray))
     }
   }

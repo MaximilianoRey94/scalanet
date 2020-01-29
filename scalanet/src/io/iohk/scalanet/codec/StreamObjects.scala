@@ -234,9 +234,9 @@ class NodeRecordCodeContract[A](codecContract: CodecContract[A]) extends CodecCo
     ByteArrayCodecContract.encodeImpl(idArray,start,destination)
     codecContract.encodeImpl(t.messagingAddress,start + ByteArrayCodecContract.size(idArray),destination)
     codecContract.encodeImpl(t.routingAddress,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress),destination)
-    UUIDCodecContract.encodeImpl(t.uuid,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress) + codecContract.size(t.routingAddress),destination)
-    BigIntegerCodecContract.encodeImpl(t.sign._1,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress) + codecContract.size(t.routingAddress)+16,destination)
-    BigIntegerCodecContract.encodeImpl(t.sign._2,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress) + codecContract.size(t.routingAddress)+16+BigIntegerCodecContract.size(t.sign._1),destination)
+    LongerCodecContract.encodeImpl(t.sec_number,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress) + codecContract.size(t.routingAddress),destination)
+    BigIntegerCodecContract.encodeImpl(t.sign._1,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress) + codecContract.size(t.routingAddress)+8,destination)
+    BigIntegerCodecContract.encodeImpl(t.sign._2,start + ByteArrayCodecContract.size(idArray) + codecContract.size(t.messagingAddress) + codecContract.size(t.routingAddress)+8+BigIntegerCodecContract.size(t.sign._1),destination)
   }
 
   override def decodeImpl(start: Int, source: ByteBuffer): Either[Failure, DecodeResult[KRouter.NodeRecord[A]]] = {
@@ -248,13 +248,13 @@ class NodeRecordCodeContract[A](codecContract: CodecContract[A]) extends CodecCo
           case Right(messagingAddress) => {
             codecContract.decodeImpl(messagingAddress.nextIndex,source) match{
               case Left(f) => Left(f)
-              case Right(routingAddress) => UUIDCodecContract.decodeImpl(routingAddress.nextIndex,source) match{
+              case Right(routingAddress) => LongerCodecContract.decodeImpl(routingAddress.nextIndex,source) match{
                 case Left(f) => Left(f)
-                case Right(uuid) => BigIntegerCodecContract.decodeImpl(uuid.nextIndex,source) match{
+                case Right(sec_number) => BigIntegerCodecContract.decodeImpl(sec_number.nextIndex,source) match{
                   case Left(f) => Left(f)
                   case Right(signed_1) => BigIntegerCodecContract.decodeImpl(signed_1.nextIndex,source) match{
                     case Left(f) => Left(f)
-                    case Right(signed_2) => Right (new DecodeResult[KRouter.NodeRecord[A]](KRouter.NodeRecord[A](BitVector(idArray.decoded),routingAddress.decoded,messagingAddress.decoded,uuid.decoded,(signed_1.decoded,signed_2.decoded)),signed_2.nextIndex))
+                    case Right(signed_2) => Right (new DecodeResult[KRouter.NodeRecord[A]](KRouter.NodeRecord[A](BitVector(idArray.decoded),routingAddress.decoded,messagingAddress.decoded,sec_number.decoded,(signed_1.decoded,signed_2.decoded)),signed_2.nextIndex))
                   }
                 }
               }
