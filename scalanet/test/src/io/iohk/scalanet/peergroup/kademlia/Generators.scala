@@ -2,7 +2,6 @@ package io.iohk.scalanet.peergroup.kademlia
 
 import java.security.SecureRandom
 
-import io.iohk.decco.auto
 import io.iohk.scalanet.peergroup.kademlia.KRouter.NodeRecord
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
@@ -11,9 +10,8 @@ import scodec.bits.BitVector
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
 import io.iohk.scalanet.crypto
-import org.spongycastle.crypto.params.{ECPrivateKeyParameters, ECPublicKeyParameters}
-import io.iohk.scalanet.codec.StringCodecContract
 import org.spongycastle.crypto.AsymmetricCipherKeyPair
+import scodec.codecs.implicits._
 
 object Generators {
 
@@ -83,6 +81,6 @@ object Generators {
       messagingAddress = Random.alphanumeric.take(4).mkString,
       sec_number = random.nextLong(),
       keyPair = keyPair
-    )(auto.codecContract2Codec[String](StringCodecContract))
+    )
   }
 }

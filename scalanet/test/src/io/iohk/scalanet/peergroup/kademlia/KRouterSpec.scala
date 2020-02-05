@@ -6,8 +6,6 @@ import java.time.Clock
 import java.util.UUID
 
 import cats.effect.concurrent.Ref
-import io.iohk.decco.auto
-import io.iohk.scalanet.codec.StringCodecContract
 import io.iohk.scalanet.peergroup.kademlia.Generators.{aRandomBitVector, aRandomNodeRecord}
 import io.iohk.scalanet.peergroup.kademlia.KMessage.KRequest.{FindNodes, Ping}
 import io.iohk.scalanet.peergroup.kademlia.KMessage.{KRequest, KResponse}
@@ -34,8 +32,8 @@ import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
 import io.iohk.scalanet.crypto
 import io.iohk.scalanet.crypto.ECDSASignature
-import org.spongycastle.crypto.AsymmetricCipherKeyPair
-import org.spongycastle.crypto.params.{ECPrivateKeyParameters, ECPublicKeyParameters}
+
+import scodec.codecs.implicits._
 
 class KRouterSpec extends FreeSpec with Eventually {
   val random = new SecureRandom()
@@ -454,7 +452,6 @@ class KRouterSpec extends FreeSpec with Eventually {
 
 object KRouterSpec {
   val random = new SecureRandom()
-  implicit val stringCodec = auto.codecContract2Codec(StringCodecContract)
 
   object KNetworkScalanetInternalTestImpl {
     case class NodeData[A](neigbours: Seq[NodeData[A]], myData: NodeRecord[A], bootstrap: Boolean) {

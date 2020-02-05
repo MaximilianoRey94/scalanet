@@ -1,6 +1,5 @@
 package io.iohk.scalanet.crypto
 
-import akka.util.ByteString
 import org.spongycastle.crypto.AsymmetricCipherKeyPair
 import org.spongycastle.crypto.digests.SHA256Digest
 import org.spongycastle.crypto.signers.{ECDSASigner, HMacDSAKCalculator}
@@ -11,8 +10,8 @@ object ECDSASignature {
   val RLength = 32
   val EncodedLength: Int = RLength + SLength
 
-  def apply(r: ByteString, s: ByteString): ECDSASignature = {
-    ECDSASignature(BigInt(1, r.toArray), BigInt(1, s.toArray))
+  def apply(r: Array[Byte], s: Array[Byte]): ECDSASignature = {
+    ECDSASignature(BigInt(1, r), BigInt(1, s))
   }
 
   def sign(message: Array[Byte], keyPair: AsymmetricCipherKeyPair, chainId: Option[Byte] = None): ECDSASignature = {

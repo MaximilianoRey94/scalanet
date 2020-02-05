@@ -1,5 +1,6 @@
 package io.iohk.scalanet
 
+import java.math.BigInteger
 import java.security.SecureRandom
 
 import org.spongycastle.asn1.sec.SECNamedCurves

@@ -7,8 +7,6 @@ import java.util.{Random, UUID}
 
 import cats.data.NonEmptyList
 import cats.effect.concurrent.Ref
-import io.iohk.decco.BufferInstantiator.global.HeapByteBuffer
-import io.iohk.decco.Codec
 import io.iohk.scalanet.peergroup.kademlia.KMessage.KRequest.{FindNodes, Ping}
 import io.iohk.scalanet.peergroup.kademlia.KMessage.KResponse.{Nodes, Pong}
 import io.iohk.scalanet.peergroup.kademlia.KMessage.{KRequest, KResponse}
@@ -17,11 +15,12 @@ import io.iohk.scalanet.peergroup.kademlia.KRouter.{Config, NodeRecord}
 import monix.eval.Task
 import monix.reactive.{Consumer, Observable, OverflowStrategy}
 import org.slf4j.LoggerFactory
-import org.spongycastle.crypto.params.{AsymmetricKeyParameter}
+import org.spongycastle.crypto.params.AsymmetricKeyParameter
 import scodec.bits.BitVector
 import io.iohk.scalanet.crypto
 import io.iohk.scalanet.crypto.ECDSASignature
 import org.spongycastle.crypto.AsymmetricCipherKeyPair
+import scodec.Codec
 
 class KRouter[A](
     val config: Config[A],
@@ -241,6 +240,7 @@ class KRouter[A](
     }.memoizeOnSuccess
 
     val xorOrder = new XorOrder[A](targetNodeId)
+
     def query(knownNodeRecord: NodeRecord[A]): Task[Seq[NodeRecord[A]]] = {
 
       val requestId = uuidSource()
@@ -298,7 +298,6 @@ class KRouter[A](
         shouldFinish = nodesLeftToQuery.isEmpty || closestKnodes.size == config.k
       } yield shouldFinish
     }
-<<<<<<< HEAD
 
     def getNodesToQuery(
         currentClosestNode: NodeRecord[A],
@@ -330,39 +329,6 @@ class KRouter[A](
       } yield nodesToQuery
     }
 
-=======
-
-    def getNodesToQuery(
-        currentClosestNode: NodeRecord[A],
-        receivedNodes: Seq[NodeRecord[A]],
-        nodesFound: NonEmptyList[NodeRecord[A]],
-        lookupState: Ref[Task, Map[BitVector, RequestResult]]
-    ): Task[Seq[NodeRecord[A]]] = {
-
-      // All nodes which are closer to target, than the closest already found node
-      val closestNodes = receivedNodes.filter(node => xorOrder.compare(node, currentClosestNode) < 0)
-
-      // we chose either:
-      // k nodes from already found or
-      // alpha nodes from closest nodes received
-      val (nodesToQueryFrom, nodesToTake) =
-        if (closestNodes.isEmpty) (nodesFound.toList, config.k) else (closestNodes, config.alpha)
-
-      for {
-        nodesToQuery <- lookupState.modify { currentState =>
-          val unqueriedNodes = nodesToQueryFrom
-            .collect {
-              case node if !currentState.contains(node.id) => node
-            }
-            .take(nodesToTake)
-
-          val updatedMap = unqueriedNodes.foldLeft(currentState)((map, node) => map + (node.id -> RequestScheduled))
-          (updatedMap, unqueriedNodes)
-        }
-      } yield nodesToQuery
-    }
-
->>>>>>> 83e076e2d23b5c3553879e0dc7f856459ff0f657
     /**
       * 1. Get alpha closest nodes
       * 2. Send parallel async Find_node request to alpha closest nodes
@@ -505,68 +471,6 @@ object KRouter {
       new KBuckets(config.nodeRecord.id, clock),
       Map(config.nodeRecord.id -> config.nodeRecord)
     )
-<<<<<<< HEAD
-  }
-
-  /**
-    * Enrolls to kademlia network from provided bootstrap nodes and then start handling incoming requests.
-    * Use when finishing of enrollment is required before starting handling of incoming requests
-    *
-    * @param config discovery config
-    * @param network underlying kademlia network
-    * @param clock clock used in kbuckets, default is UTC
-    * @param uuidSource source to generate uuids, default is java built in UUID generator
-    * @tparam A type of addressing
-    * @return initialised kademlia router which handles incoming requests
-    */
-  def startRouterWithServerSeq[A](
-      config: Config[A],
-      network: KNetwork[A],
-      clock: Clock = Clock.systemUTC(),
-      uuidSource: () => UUID = () => UUID.randomUUID()
-  )(implicit codec: Codec[A]): Task[KRouter[A]] = {
-    for {
-      state <- Ref.of[Task, NodeRecordIndex[A]](getIndex(config, clock))
-      router <- Task.now(
-        new KRouter(config, network, state, clock, uuidSource)
-      )
-      _ <- router.enroll()
-      _ <- router.startServerHandling().startAndForget
-      _ <- router.startRefreshCycle().startAndForget
-    } yield router
-  }
-
-  /**
-    * Enrolls to kademlia network and start handling incoming requests and refresh buckets cycle in parallel
-    *
-    *
-    * @param config discovery config
-    * @param network underlying kademlia network
-    * @param clock clock used in kbuckets, default is UTC
-    * @param uuidSource source to generate uuids, default is java built in UUID generator
-    * @tparam A type of addressing
-    * @return initialised kademlia router which handles incoming requests
-    */
-  //TODO consider adding possibility of having lookup process and server processing on different schedulers
-  def startRouterWithServerPar[A](
-      config: Config[A],
-      network: KNetwork[A],
-      clock: Clock = Clock.systemUTC(),
-      uuidSource: () => UUID = () => UUID.randomUUID()
-  )(implicit codec: Codec[A]): Task[KRouter[A]] = {
-    Ref
-      .of[Task, NodeRecordIndex[A]](getIndex(config, clock))
-      .flatMap { state =>
-        Task.now(new KRouter(config, network, state, clock, uuidSource)).flatMap { router =>
-          Task.parMap3(
-            router.enroll(),
-            router.startServerHandling().startAndForget,
-            router.startRefreshCycle().startAndForget
-          )((_, _, _) => router)
-        }
-      }
-  }
-=======
   }
 
   /**
@@ -650,10 +554,14 @@ object KRouter {
       val encodedUUID = ByteBuffer.allocate(8)
       encodedUUID.putLong(0, sec_number)
       val encoded = id.toByteArray ++ codec
-        .encode[ByteBuffer](routingAddress)
-        .array() ++ codec
-        .encode[ByteBuffer](routingAddress)
-        .array() ++ encodedUUID.array()
+        .encode(routingAddress)
+        .toOption
+        .get
+        .toByteArray ++ codec
+        .encode(routingAddress)
+        .toOption
+        .get
+        .toByteArray ++ encodedUUID.array()
       val sign = crypto.ECDSASignature.sign(encoded, keyPair)
       NodeRecord[A](id, routingAddress, messagingAddress, sec_number, sign)
     }
@@ -661,10 +569,14 @@ object KRouter {
       val encodedUUID = ByteBuffer.allocate(8)
       encodedUUID.putLong(0, n.seq)
       val encoded = n.id.toByteArray ++ codec
-        .encode[ByteBuffer](n.routingAddress)
-        .array() ++ codec
-        .encode[ByteBuffer](n.routingAddress)
-        .array() ++ encodedUUID.array()
+        .encode(n.routingAddress)
+        .toOption
+        .get
+        .toByteArray ++ codec
+        .encode(n.routingAddress)
+        .toOption
+        .get
+        .toByteArray ++ encodedUUID.array()
       try {
         crypto.verify(
           encoded,
@@ -719,4 +631,3 @@ object KRouter {
     }
   }
 }
->>>>>>> 83e076e2d23b5c3553879e0dc7f856459ff0f657

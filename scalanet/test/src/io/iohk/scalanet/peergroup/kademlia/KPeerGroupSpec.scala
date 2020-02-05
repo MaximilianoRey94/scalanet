@@ -1,9 +1,6 @@
 package io.iohk.scalanet.peergroup.kademlia
 
-import java.nio.ByteBuffer
-
-import io.iohk.decco.{BufferInstantiator, Codec, auto}
-import io.iohk.scalanet.codec._
+import io.iohk.scalanet.codec.{EitherCodec, NodeRecordCode}
 import io.iohk.scalanet.peergroup.InMemoryPeerGroup.Network
 import io.iohk.scalanet.peergroup.PeerGroup.createOrThrow
 import io.iohk.scalanet.peergroup.StandardTestPack.messagingTest
@@ -18,27 +15,22 @@ import org.scalatest.FlatSpec
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.mockito.MockitoSugar._
 import org.scalatest.concurrent.ScalaFutures._
+import scodec.Codec
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
 class KPeerGroupSpec extends FlatSpec {
-  implicit val messageCodec: Codec[Either[NodeRecord[String], String]] =
-    auto.codecContract2Codec(
-      new EitherCodecContract[NodeRecord[String], String](
-        new NodeRecordCodeContract(StringCodecContract),
-        StringCodecContract
-      )
-    )
+
+  import scodec.codecs.implicits._
+  implicit val nodeRecordCodec = new NodeRecordCode[String]
+  implicit val codec = new EitherCodec[KRouter.NodeRecord[String], String]
 
   implicit val patienceConfig: ScalaFutures.PatienceConfig =
     PatienceConfig(1 second)
 
   behavior of "KPeerGroup"
 
-  import io.iohk.decco.BufferInstantiator.global.HeapByteBuffer
-  import io.iohk.decco.auto._
-  import io.iohk.scalanet.peergroup.kademlia.BitVectorCodec._
   import monix.execution.Scheduler.Implicits.global
 
   it should "send and receive a message" in withTwoPeerGroups(
@@ -55,8 +47,7 @@ object KPeerGroupSpec {
       testCode: (KPeerGroup[String, String], KPeerGroup[String, String]) => Any
   )(
       implicit scheduler: Scheduler,
-      codec: Codec[Either[NodeRecord[String], String]],
-      bufferInstantiator: BufferInstantiator[ByteBuffer]
+      codec: Codec[Either[NodeRecord[String], String]]
   ): Unit = {
 
     val n: Network[String, Either[NodeRecord[String], String]] = new Network()
