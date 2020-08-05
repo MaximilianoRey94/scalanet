@@ -1,5 +1,8 @@
 package io.iohk.scalanet.peergroup.kademlia
 
+import java.security.SecureRandom
+
+import io.iohk.decco.auto
 import io.iohk.scalanet.peergroup.kademlia.KRouter.NodeRecord
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
@@ -7,10 +10,16 @@ import scodec.bits.BitVector
 
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
+import io.iohk.scalanet.crypto
+import org.spongycastle.crypto.params.{ECPrivateKeyParameters, ECPublicKeyParameters}
+import io.iohk.scalanet.codec.StringCodecContract
+import org.spongycastle.crypto.AsymmetricCipherKeyPair
 
 object Generators {
 
-  val defaultBitLength = 16
+  val random = new SecureRandom()
+
+  val defaultBitLength = 264
 
   def genBitVector(bitLength: Int = defaultBitLength): Gen[BitVector] =
     for {
@@ -65,12 +74,15 @@ object Generators {
     BitVector.bits(Range(0, bitLength).map(_ => Random.nextBoolean()))
 
   def aRandomNodeRecord(
-      bitLength: Int = defaultBitLength
+      bitLength: Int = defaultBitLength,
+      keyPair: AsymmetricCipherKeyPair = crypto.generateKeyPair(random)
   ): NodeRecord[String] = {
     NodeRecord(
-      id = aRandomBitVector(bitLength),
+      id = BitVector(crypto.encodeKey(keyPair.getPublic)),
       routingAddress = Random.alphanumeric.take(4).mkString,
-      messagingAddress = Random.alphanumeric.take(4).mkString
-    )
+      messagingAddress = Random.alphanumeric.take(4).mkString,
+      sec_number = random.nextLong(),
+      keyPair = keyPair
+    )(auto.codecContract2Codec[String](StringCodecContract))
   }
 }

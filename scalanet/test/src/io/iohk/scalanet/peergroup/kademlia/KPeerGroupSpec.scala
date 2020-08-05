@@ -2,7 +2,8 @@ package io.iohk.scalanet.peergroup.kademlia
 
 import java.nio.ByteBuffer
 
-import io.iohk.decco.{BufferInstantiator, Codec}
+import io.iohk.decco.{BufferInstantiator, Codec, auto}
+import io.iohk.scalanet.codec._
 import io.iohk.scalanet.peergroup.InMemoryPeerGroup.Network
 import io.iohk.scalanet.peergroup.PeerGroup.createOrThrow
 import io.iohk.scalanet.peergroup.StandardTestPack.messagingTest
@@ -22,10 +23,16 @@ import scala.concurrent.Await
 import scala.concurrent.duration._
 
 class KPeerGroupSpec extends FlatSpec {
+  implicit val messageCodec: Codec[Either[NodeRecord[String], String]] =
+    auto.codecContract2Codec(
+      new EitherCodecContract[NodeRecord[String], String](
+        new NodeRecordCodeContract(StringCodecContract),
+        StringCodecContract
+      )
+    )
 
-  implicit val patienceConfig: ScalaFutures.PatienceConfig = PatienceConfig(
-    1 second
-  )
+  implicit val patienceConfig: ScalaFutures.PatienceConfig =
+    PatienceConfig(1 second)
 
   behavior of "KPeerGroup"
 
